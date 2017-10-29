@@ -1,0 +1,7 @@
+predict
+cmake-build-debug/*
+predict.dSYM/*
+CMakeLists.txt
+.DS_Store
+.idea/*
+compress/*
