@@ -14,7 +14,7 @@ public:
 class my_predictor : public branch_predictor {
 #define HISTORY_LENGTH	64
 #define TABLE_BITS	15
-#define PERCPETRON_NUM 64
+#define PERCPETRON_NUM 10000
     const double threshold = 1.93 * HISTORY_LENGTH + 14;
 //	const double threshold = 1000;
 public:
@@ -51,7 +51,7 @@ public:
 			if (j == 0) {
 				output += wrow[j];
 			} else {
-                if (history_vec[j]) {
+                if (history_vec[j-1]) {
 					output += wrow[j];
 				} else {
 					output -= wrow[j];
@@ -73,7 +73,7 @@ public:
 				wrow[0] -= 1;
 			}
 			for (j=1; j<=HISTORY_LENGTH; j++) {
-				if (taken == history_vec[j]) {
+				if (taken == history_vec[j-1]) {
 					wrow[j] += 1;
 				} else {
 					wrow[j] -= 1;
@@ -100,10 +100,10 @@ public:
 	void update (branch_update *u, bool taken, unsigned int target) {
 		if (bi.br_flags & BR_CONDITIONAL) {
             train(((my_update*)u)->index, ((my_update*)u)->output, u->direction_prediction(), taken);
+			vec_push(history_vec, taken);
 //			history <<= 1;
 //			history |= taken;
 //			history &= (1<<HISTORY_LENGTH)-1;
-			vec_push(history_vec, taken);
 		}
 		if (bi.br_flags & BR_INDIRECT) {
 //			targets[bi.address & ((1<<TABLE_BITS)-1)] = target;
