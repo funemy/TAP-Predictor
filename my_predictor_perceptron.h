@@ -31,7 +31,7 @@ public:
 };
 
 class my_predictor : public branch_predictor {
-#define HISTORY_LENGTH	22
+#define HISTORY_LENGTH	64
 #define PERCPETRON_NUM 10000
     const double threshold = 1.93 * HISTORY_LENGTH + 14;
 public:
@@ -42,7 +42,6 @@ public:
 //	a weight matrix for percpetrons
     int w[PERCPETRON_NUM][HISTORY_LENGTH+1];
 //	a weight matrix for sub predictor perceptrons
-//	TODO: could have bugs for initialization
     int wsub[PERCPETRON_NUM][(HISTORY_LENGTH+1)*SUB_PREDICTOR_NUM];
     std::map<unsigned int, btb_block> btb;
 
@@ -139,7 +138,8 @@ public:
         int *wrow = wsub[i];
         w_len = HISTORY_LENGTH + 1;
 //      condition 1:
-//		prediction equals to target, but output is smaller than threshold
+//		prediction equals to target
+//      only update the BTB
         if (prediction == target) {
             btb_block *block = &btb[bi.address];
             int tap_i = 0;
@@ -185,7 +185,7 @@ public:
             for (j=0; j<SUB_PREDICTOR_NUM; j++) {
                 bool tap_bit = tap >> (SUB_PREDICTOR_NUM - j -1);
                 bool taken = real_tap >> (SUB_PREDICTOR_NUM - j -1);
-                if ( (tap_bit != taken) || (outputs[j] < threshold) ) {
+                if ( (tap_bit != taken) ) {
                     for (k=w_len*j; k<w_len*(j+1); k++) {
                         if ( (k % w_len) == 0 ) {
                             if (taken) wrow[k] += 1; else wrow[k] -= 1;
