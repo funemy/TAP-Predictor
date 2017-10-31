@@ -141,23 +141,18 @@ public:
 //      condition 1:
 //		prediction equals to target, but output is smaller than threshold
 		if (prediction == target) {
-			for (j = 0; j < SUB_PREDICTOR_NUM; j++) {
-//				if (outputs[j] < threshold) {
-					bool taken = tap >> (SUB_PREDICTOR_NUM - j - 1);
-//                  TODO: k<w_len*(j+1)-1?
-					for (k = w_len * j; k < w_len*(j+1); k++) {
-						if ((k % w_len) == 0) {
-							if (taken) wrow[k] += 1; else wrow[k] -= 1;
-						} else {
-							if (taken == history_vec[(k % w_len) - 1]) {
-								wrow[k] += 1;
-							} else {
-								wrow[k] -= 1;
-							}
-						}
-					}
-//				}
+            btb_block *block = &btb[bi.address];
+            int tap_i = 0;
+			for (j=0; j<(1<<SUB_PREDICTOR_NUM); j++) {
+                if (block->mru[j] == tap) {
+					tap_i = j;
+					break;
+				}
+            }
+			for (k=tap_i; k>0; k--) {
+				block->mru[k] = block->mru[k-1];
 			}
+			block->mru[0] = tap;
 //		condition 2:
 //		prediction is not equals to target
 		} else {
