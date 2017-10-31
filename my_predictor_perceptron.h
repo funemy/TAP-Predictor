@@ -104,14 +104,12 @@ public:
 
 	unsigned int indirect_prediction(unsigned int pc) {
 		int i, j, k, w_len, output, tap;
-//        unsigned int target;
         i = pc % PERCPETRON_NUM;
 		w_len = HISTORY_LENGTH + 1;
 		int *wrow = wsub[i];
 		tap = 0;
         for (j=0; j<SUB_PREDICTOR_NUM; j++) {
             output = 0;
-//          TODO: k<w_len*(j+1)-1?
             for (k=w_len*j; k<w_len*(j+1); k++) {
                 if ( (k % w_len) == 0 ) {
                     output += wrow[k];
@@ -144,7 +142,7 @@ public:
 //		prediction equals to target, but output is smaller than threshold
 		if (prediction == target) {
 			for (j = 0; j < SUB_PREDICTOR_NUM; j++) {
-				if (outputs[j] < threshold) {
+//				if (outputs[j] < threshold) {
 					bool taken = tap >> (SUB_PREDICTOR_NUM - j - 1);
 //                  TODO: k<w_len*(j+1)-1?
 					for (k = w_len * j; k < w_len*(j+1); k++) {
@@ -158,7 +156,7 @@ public:
 							}
 						}
 					}
-				}
+//				}
 			}
 //		condition 2:
 //		prediction is not equals to target
