@@ -33,6 +33,7 @@ public:
 class my_predictor : public branch_predictor {
 #define HISTORY_LENGTH	64
 #define PERCPETRON_NUM 10000
+#define LONG_HISTORY_LENGTH ((HISTORY_LENGTH+1)*SUB_PREDICTOR_NUM)
     const double threshold = 1.93 * HISTORY_LENGTH + 14;
 public:
     my_update u;
@@ -42,7 +43,7 @@ public:
 //	a weight matrix for percpetrons
     int w[PERCPETRON_NUM][HISTORY_LENGTH+1];
 //	a weight matrix for sub predictor perceptrons
-    int wsub[PERCPETRON_NUM][(HISTORY_LENGTH+1)*SUB_PREDICTOR_NUM];
+    int wsub[PERCPETRON_NUM][LONG_HISTORY_LENGTH];
     std::map<unsigned int, btb_block> btb;
 
     my_predictor (void) : history(0), history_vec(HISTORY_LENGTH, false){
