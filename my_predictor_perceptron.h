@@ -8,17 +8,19 @@
 #include <iostream>
 #include <bitset>
 
-// a BTB-block is indexed by a branch address
-// it contains at most 16 branch targets
-// using the LRU replacement policy when the block is full
-class btb_block {
+// a BTB-set is indexed by a branch address
+// 32-way associated
+// using the LFU replacement policy when the set is full
+class btb_set {
 #define SUB_PREDICTOR_NUM 5
 public:
     unsigned int targets[1<<SUB_PREDICTOR_NUM];
-    int mru[1<<SUB_PREDICTOR_NUM] =
-            {31,30,29,28,27,26,25,24,23,22,21,20,19,18,17,16,15,14,13,12,11,10,9,8,7,6,5,4,3,2,1,0};
-    btb_block () {
+    int counter[1<<SUB_PREDICTOR_NUM];
+//    int mru[1<<SUB_PREDICTOR_NUM] =
+//            {31,30,29,28,27,26,25,24,23,22,21,20,19,18,17,16,15,14,13,12,11,10,9,8,7,6,5,4,3,2,1,0};
+    btb_set () {
         memset(targets, 0 , sizeof(targets));
+        memset(counter, 0 , sizeof(counter));
     }
 };
 
@@ -31,43 +33,49 @@ public:
 };
 
 class my_predictor : public branch_predictor {
-#define HISTORY_LENGTH	64
+//History length for each sub-predictor
+#define HISTORY_LENGTH 59
+//Number of perceptrons
 #define PERCPETRON_NUM 10000
+//The total weight vector length
 #define LONG_HISTORY_LENGTH ((HISTORY_LENGTH+1)*SUB_PREDICTOR_NUM)
     const double threshold = 1.93 * HISTORY_LENGTH + 14;
 public:
     my_update u;
     branch_info bi;
-    unsigned long long int history;
+//  Global History Register
     std::vector<char> history_vec;
-//	a weight matrix for percpetrons
-    int w[PERCPETRON_NUM][HISTORY_LENGTH+1];
 //	a weight matrix for sub predictor perceptrons
     int wsub[PERCPETRON_NUM][LONG_HISTORY_LENGTH];
-    std::map<unsigned int, btb_block> btb;
+//  Branch target buffer
+//  indexed by indirect branch address
+    std::map<unsigned int, btb_set> btb;
 
-    my_predictor (void) : history(0), history_vec(HISTORY_LENGTH, false){
-        memset(w, 0, sizeof(w));
+    my_predictor (void) : history_vec(LONG_HISTORY_LENGTH-1, false){
+        memset(wsub, 0, sizeof(wsub));
     }
+
 
     void vec_unshift (std::vector<char> &vec) {
         vec.erase(vec.begin()+0);
     }
 
+//  push new history to the GHR
+//  while keeping the GHR at the same length
     void vec_push (std::vector<char> &vec, char value) {
-        if (vec.size() >= HISTORY_LENGTH) {
+        if (vec.size() >= LONG_HISTORY_LENGTH-1) {
             vec_unshift(vec);
         }
         vec.push_back(value);
     }
 
-
+//  conditional branch prediction
     bool perceptron_predict(unsigned int pc) {
         int i,j,output;
         i = pc % PERCPETRON_NUM;
-        int *wrow = w[i];
+        int *wrow = wsub[i];
         output = 0;
-        for (j = 0; j <= HISTORY_LENGTH; j++) {
+        for (j = 0; j <= LONG_HISTORY_LENGTH; j++) {
             if (j == 0) {
                 output += wrow[j];
             } else {
@@ -83,16 +91,17 @@ public:
         return output >= 0;
     }
 
+//  conditional update
     void train (int i, int output, bool prediction, bool taken) {
         int j;
-        int *wrow = w[i];
+        int *wrow = wsub[i];
         if ( (prediction!=taken) || (abs(output)<threshold) ) {
             if (taken) {
                 wrow[0] += 1;
             } else {
                 wrow[0] -= 1;
             }
-            for (j=1; j<=HISTORY_LENGTH; j++) {
+            for (j=1; j<=LONG_HISTORY_LENGTH; j++) {
                 if (taken == history_vec[j-1]) {
                     wrow[j] += 1;
                 } else {
@@ -102,6 +111,7 @@ public:
         }
     }
 
+//  indirect branch prediction
     unsigned int indirect_prediction(unsigned int pc) {
         int i, j, k, w_len, output, tap;
         i = pc % PERCPETRON_NUM;
@@ -114,7 +124,8 @@ public:
                 if ( (k % w_len) == 0 ) {
                     output += wrow[k];
                 } else {
-                    if (history_vec[(k % w_len) - 1]) {
+                    int index = (k%w_len)-1 + w_len*(SUB_PREDICTOR_NUM-1);
+                    if (history_vec[index]) {
                         output += wrow[k];
                     } else {
                         output -= wrow[k];
@@ -134,6 +145,7 @@ public:
         return btb[pc].targets[tap];
     }
 
+//  indirect branch prediction
     void sub_predictor_train(int i, int outputs[], int tap, unsigned int prediction, unsigned int target){
         int j, k, w_len;
         int *wrow = wsub[i];
@@ -141,48 +153,80 @@ public:
 //      condition 1:
 //		prediction equals to target
 //      only update the BTB
+//      using LFU replacement policy
         if (prediction == target) {
-            btb_block *block = &btb[bi.address];
-            int tap_i = 0;
-            for (j=0; j<(1<<SUB_PREDICTOR_NUM); j++) {
-                if (block->mru[j] == tap) {
-                    tap_i = j;
-                    break;
-                }
-            }
-            for (k=tap_i; k>0; k--) {
-                block->mru[k] = block->mru[k-1];
-            }
-            block->mru[0] = tap;
+            btb_set *set = &btb[bi.address];
+            set->counter[tap] += 1;
+
+//          the commented code below is LRU replacement policy
+//          beaten by LFU
+
+//            int tap_i = 0;
+//            for (j=0; j<(1<<SUB_PREDICTOR_NUM); j++) {
+//                if (set->mru[j] == tap) {
+//                    tap_i = j;
+//                    break;
+//                }
+//            }
+//            for (k=tap_i; k>0; k--) {
+//                set->mru[k] = set->mru[k-1];
+//            }
+//            set->mru[0] = tap;
 //		condition 2:
 //		prediction is not equals to target
         } else {
-            int real_tap = 0; // TODO: may cause bug, switch to 0;
-            int real_tap_i=0;
-            btb_block *block = &btb[bi.address];
-            bool mistake_flag = false; // TODO: for debugging
+            btb_set *set = &btb[bi.address];
+            int real_tap = 0;
+//              LFU policy
             for (j=0; j<(1<<SUB_PREDICTOR_NUM); j++) {
-                if (block->targets[j] == target) {
+//                if (set->targets[j] == target) {
+//                    real_tap = j;
+//                    break;
+//                }
+                if (set->counter[j] < set->counter[real_tap]) {
                     real_tap = j;
-                    break;
                 }
             }
-            if (block->targets[real_tap] != target) {
-                real_tap_i = (1<<SUB_PREDICTOR_NUM) - 1;
-                real_tap = block->mru[real_tap_i];
-                block->targets[real_tap] = target;
-            } else {
-                for (j=0; j<(1<<SUB_PREDICTOR_NUM); j++) {
-                    if (block->mru[j] == real_tap) {
-                        real_tap_i = j;
-                        break;
-                    }
-                }
-            }
-            for (k=real_tap_i; k>0; k--) {
-                block->mru[k] = block->mru[k-1];
-            }
-            block->mru[0] = real_tap;
+            set->counter[real_tap] += 1;
+            set->targets[real_tap] = target;
+
+//          LRU policy
+
+//            int real_tap_i=0;
+//            btb_set *set = &btb[bi.address];
+//            for (j=0; j<(1<<SUB_PREDICTOR_NUM); j++) {
+//                if (set->targets[j] == target) {
+//                    real_tap = j;
+//                    break;
+//                }
+//            }
+//            if (set->targets[real_tap] != target) {
+//                real_tap_i = (1<<SUB_PREDICTOR_NUM) - 1;
+//                real_tap = set->mru[real_tap_i];
+//                set->targets[real_tap] = target;
+//            } else {
+//                for (j=0; j<(1<<SUB_PREDICTOR_NUM); j++) {
+//                    if (set->mru[j] == real_tap) {
+//                        real_tap_i = j;
+//                        break;
+//                    }
+//                }
+//            }
+//            for (k=real_tap_i; k>0; k--) {
+//                set->mru[k] = set->mru[k-1];
+//            }
+//            set->mru[0] = real_tap;
+
+//          training perceptrons
+//            std::cout<<"tap: "<<std::bitset<5>(tap)<<std::endl;
+//            std::cout<<"prediction: "<<prediction<<std::endl;
+//            std::cout<<"real tap: "<<std::bitset<5>(real_tap)<<std::endl;
+//            std::cout<<"target: "<<target<<std::endl;
+//            for (int p=0; p<(1<<SUB_PREDICTOR_NUM); p++){
+//                std::cout<<set->targets[p]<<"("<<set->counter[p]<<")"<<" ";
+//            }
+//            std::cout<<std::endl;
+//            std::cout<<"-----"<<std::endl;
             for (j=0; j<SUB_PREDICTOR_NUM; j++) {
                 bool tap_bit = tap >> (SUB_PREDICTOR_NUM - j -1);
                 bool taken = real_tap >> (SUB_PREDICTOR_NUM - j -1);
@@ -191,7 +235,8 @@ public:
                         if ( (k % w_len) == 0 ) {
                             if (taken) wrow[k] += 1; else wrow[k] -= 1;
                         } else {
-                            if (taken == history_vec[(k % w_len) - 1]) {
+                            int index = (k%w_len)-1 + w_len*(SUB_PREDICTOR_NUM-1);
+                            if (taken == history_vec[index]) {
                                 wrow[k] += 1;
                             } else {
                                 wrow[k] -= 1;
@@ -206,8 +251,8 @@ public:
     branch_update *predict (branch_info & b) {
         bi = b;
         if (b.br_flags & BR_CONDITIONAL) {
-            bool direction = perceptron_predict(b.address);
-            u.direction_prediction(direction);
+//            bool direction = perceptron_predict(b.address);
+//            u.direction_prediction(direction);
         } else {
             u.direction_prediction (true);
         }
@@ -220,7 +265,7 @@ public:
 
     void update (branch_update *u, bool taken, unsigned int target) {
         if (bi.br_flags & BR_CONDITIONAL) {
-            train(((my_update*)u)->index, ((my_update*)u)->output, u->direction_prediction(), taken);
+//            train(((my_update*)u)->index, ((my_update*)u)->output, u->direction_prediction(), taken);
             vec_push(history_vec, taken);
         }
         if (bi.br_flags & BR_INDIRECT) {
