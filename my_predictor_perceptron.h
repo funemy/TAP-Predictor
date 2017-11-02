@@ -1,7 +1,6 @@
 // my_predictor.h
-// This file contains a sample my_predictor class.
-// It has a simple 32,768-entry gshare with a history length of 15 and a
-// simple direct-mapped branch target buffer for indirect branch prediction.
+// This file contains a my_predictor class.
+// It has a perceptron-based TAP indirect branch predictor
 
 #include <vector>
 #include <map>
@@ -34,17 +33,19 @@ public:
 
 class my_predictor : public branch_predictor {
 //History length for each sub-predictor
-#define HISTORY_LENGTH 59
+#define HISTORY_LENGTH 64
 //Number of perceptrons
 #define PERCPETRON_NUM 10000
 //The total weight vector length
 #define LONG_HISTORY_LENGTH ((HISTORY_LENGTH+1)*SUB_PREDICTOR_NUM)
+//  threshold for perceptron training
     const double threshold = 1.93 * HISTORY_LENGTH + 14;
 public:
     my_update u;
     branch_info bi;
 //  Global History Register
     std::vector<char> history_vec;
+    std::vector<std::vector<char>> local_history_vec;
 //	a weight matrix for sub predictor perceptrons
     int wsub[PERCPETRON_NUM][LONG_HISTORY_LENGTH];
 //  Branch target buffer
@@ -53,6 +54,9 @@ public:
 
     my_predictor (void) : history_vec(LONG_HISTORY_LENGTH-1, false){
         memset(wsub, 0, sizeof(wsub));
+        for (int i = 0; i < SUB_PREDICTOR_NUM; ++i) {
+            local_history_vec.emplace_back(std::vector<char>(HISTORY_LENGTH, false));
+        }
     }
 
 
@@ -172,17 +176,18 @@ public:
 //                set->mru[k] = set->mru[k-1];
 //            }
 //            set->mru[0] = tap;
+
 //		condition 2:
 //		prediction is not equals to target
         } else {
             btb_set *set = &btb[bi.address];
             int real_tap = 0;
-//              LFU policy
-            for (j=0; j<(1<<SUB_PREDICTOR_NUM); j++) {
-//                if (set->targets[j] == target) {
-//                    real_tap = j;
-//                    break;
-//                }
+//          LFU policy
+            for (j = 0; j < (1 << SUB_PREDICTOR_NUM); j++) {
+                if (set->targets[j] == target) {
+                    real_tap = j;
+                    break;
+                }
                 if (set->counter[j] < set->counter[real_tap]) {
                     real_tap = j;
                 }
@@ -193,7 +198,6 @@ public:
 //          LRU policy
 
 //            int real_tap_i=0;
-//            btb_set *set = &btb[bi.address];
 //            for (j=0; j<(1<<SUB_PREDICTOR_NUM); j++) {
 //                if (set->targets[j] == target) {
 //                    real_tap = j;
@@ -218,18 +222,12 @@ public:
 //            set->mru[0] = real_tap;
 
 //          training perceptrons
-//            std::cout<<"tap: "<<std::bitset<5>(tap)<<std::endl;
-//            std::cout<<"prediction: "<<prediction<<std::endl;
-//            std::cout<<"real tap: "<<std::bitset<5>(real_tap)<<std::endl;
-//            std::cout<<"target: "<<target<<std::endl;
-//            for (int p=0; p<(1<<SUB_PREDICTOR_NUM); p++){
-//                std::cout<<set->targets[p]<<"("<<set->counter[p]<<")"<<" ";
-//            }
-//            std::cout<<std::endl;
-//            std::cout<<"-----"<<std::endl;
             for (j=0; j<SUB_PREDICTOR_NUM; j++) {
-                bool tap_bit = tap >> (SUB_PREDICTOR_NUM - j -1);
-                bool taken = real_tap >> (SUB_PREDICTOR_NUM - j -1);
+                bool tap_bit = tap & (1<<(SUB_PREDICTOR_NUM-j-1));
+                bool taken = real_tap & (1<<(SUB_PREDICTOR_NUM-j-1));
+
+//              the commented code below compares each output from perceptron predictor with threshold
+//                if ( (tap_bit != taken) || (outputs[j]<threshold) ) {
                 if ( (tap_bit != taken) ) {
                     for (k=w_len*j; k<w_len*(j+1); k++) {
                         if ( (k % w_len) == 0 ) {
