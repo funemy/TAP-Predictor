@@ -15,8 +15,7 @@ class btb_set {
 public:
     unsigned int targets[1<<SUB_PREDICTOR_NUM];
     int counter[1<<SUB_PREDICTOR_NUM];
-//    int mru[1<<SUB_PREDICTOR_NUM] =
-//            {31,30,29,28,27,26,25,24,23,22,21,20,19,18,17,16,15,14,13,12,11,10,9,8,7,6,5,4,3,2,1,0};
+//    int mru[1<<SUB_PREDICTOR_NUM]
     btb_set () {
         memset(targets, 0 , sizeof(targets));
         memset(counter, 0 , sizeof(counter));
@@ -33,7 +32,7 @@ public:
 
 class my_predictor : public branch_predictor {
 //History length for each sub-predictor
-#define HISTORY_LENGTH 64
+#define HISTORY_LENGTH 256
 //Number of perceptrons
 #define PERCPETRON_NUM 10000
 //The total weight vector length
@@ -54,9 +53,6 @@ public:
 
     my_predictor (void) : history_vec(LONG_HISTORY_LENGTH-1, false){
         memset(wsub, 0, sizeof(wsub));
-        for (int i = 0; i < SUB_PREDICTOR_NUM; ++i) {
-            local_history_vec.emplace_back(std::vector<char>(HISTORY_LENGTH, false));
-        }
     }
 
 
@@ -178,7 +174,7 @@ public:
 //            set->mru[0] = tap;
 
 //		condition 2:
-//		prediction is not equals to target
+//		prediction is not equal to target
         } else {
             btb_set *set = &btb[bi.address];
             int real_tap = 0;
@@ -225,9 +221,7 @@ public:
             for (j=0; j<SUB_PREDICTOR_NUM; j++) {
                 bool tap_bit = tap & (1<<(SUB_PREDICTOR_NUM-j-1));
                 bool taken = real_tap & (1<<(SUB_PREDICTOR_NUM-j-1));
-
-//              the commented code below compares each output from perceptron predictor with threshold
-//                if ( (tap_bit != taken) || (outputs[j]<threshold) ) {
+//              not comparing the threshold can get a better MKPI
                 if ( (tap_bit != taken) ) {
                     for (k=w_len*j; k<w_len*(j+1); k++) {
                         if ( (k % w_len) == 0 ) {
